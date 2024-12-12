@@ -1,2 +1,8 @@
 # DMM-servo
-Python code to control DMM servo controllers over serial
+Python code to control DMM servo controller over serial
+
+This is code designed not to be a universal API, but rather something short and simple so you can read it, understand it, modify it and extend it for your needs.
+
+I wrote this because there weren't any nice code examples for communicating with DMM servo controllers that I could find online.  Put it on github so hoepfully others will be able to find it.
+
+
