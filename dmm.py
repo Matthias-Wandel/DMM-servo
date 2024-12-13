@@ -7,7 +7,7 @@
 import sys,time
 import serial
 
-# requires "pip3 instll pyserial" for serial to be enabled.
+# requires "pip3 install pyserial" for serial to be enabled.
 #ser = serial.Serial("/dev/ttyS0", 38400) # Linux
 ser = serial.Serial("COM1", 38400) # Windows, change to port you are using.
 
