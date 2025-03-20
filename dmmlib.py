@@ -3,7 +3,7 @@
 #
 # Tested with DYN2-T 1A6S-00 sevo controller
 #
-# Matthias Wandel Jauary 2024
+# Matthias Wandel Jauary 2025 - March 2025
 import sys, time
 import serial  # Requires "pip3 instll pyserial" for serial to be enabled.
 
@@ -22,7 +22,7 @@ SendCommandIds = {
     "Read_HighAccel":0x1d,     "Read_Pos_OnRange":0x1e,   "Read_GearNumber":0x1f
 }
 
-DMM_GENERAL_READ = 0x0e
+GENERAL_READ = 0x0e
 
 # Make reverse lookup dictionary for the commands
 SendCommandLookup = {}
@@ -41,15 +41,16 @@ RecvReplyIds = {
     0x1f:"??0x1F??"
 }
 
-# Array of values read back.
-# Initialize to 1 billion, which can't be returned by servo in 4 7-bit bytes.
 ReplyValues = [1000000000]*32
 ReplysDecoded = 0
+
+SaveDecoded = False
+DecodedQueue = []
 
 #===========================================================================================
 # Send a command to the servo controller
 #===========================================================================================
-def SendCommand(Command, Value=0):
+def SendCommand(Command, Value=0, id = -1):
     global ShowSerialBytes
 
     if not -1 <= (Value >> 27) <= 0:
@@ -57,12 +58,15 @@ def SendCommand(Command, Value=0):
         return
 
     if isinstance(Command, str):
-        # For clarity of code, but not efficiency,
-        # you can also pass the command as a string.
+        # you can also pass the command as a string, for clarity but not efficiency.
         Command = SendCommandIds[Command]
 
     CmdToSend = [0]*2
-    CmdToSend[0] = Controller_ID
+    if id:
+        CmdToSend[0] = id & 0x7f
+    else:
+        CmdToSend[0] = Controller_ID
+
     CmdToSend[1] = 0x80 | Command & 0x1f
 
     if Command >= 0x10 and Command <= 0x14:
@@ -92,7 +96,7 @@ def SendCommand(Command, Value=0):
 # Decode a command or reply from serial.
 # Not doing anything with the reply except print its contents.
 #===========================================================================================
-SingleByteReplies = [0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,    0x19, 0x1a]
+SingleByteReplies = [0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,  0x19, 0x1a]
 def DecodeCmd(Command):
     global RecvReplyIds, ShowSerialBytes
 
@@ -101,7 +105,7 @@ def DecodeCmd(Command):
     # Check MSBs in all subsequent bytes is set.
     for a in range (1,len(Command)):
         if not Command[a] & 0x80:
-            print("Command format error")
+            print("Command format error:", Command)
             return
 
     # Check the checksum
@@ -151,21 +155,30 @@ def DecodeCmd(Command):
     global ReplyValues, ReplysDecoded
 
     if DeviceId != 0x7f:
-        ReplyValues[ReplyId] = Value
         ReplysDecoded += 1
+
+        ReplyValues[ReplyId] = Value
+        if SaveDecoded: DecodedQueue.append((DeviceId, ReplyId, Value))
 
 #===========================================================================================
 # Process accumulated serial bytes and decode them.
 #===========================================================================================
 BytesGot = bytes([])
-def RecvData():
+def RecvData(wait=0.02):
     global BytesGot
-    start_time = time.time()
-    # Wait 20 ms for any reply that is on its way.
-    while time.time() - start_time < 0.02:
-        if ser.in_waiting > 0: # Read available bytes
-            data = ser.read(ser.in_waiting)
+    if wait == 0: # Just get what we got, don't want for more data to arrive.
+        data = ser.read(ser.in_waiting)
+        if BytesGot:
             BytesGot += data
+        else:
+            BytesGot = data
+    else:
+        start_time = time.time()
+        # Wait 20 ms for any reply that is on its way.
+        while time.time() - start_time < 0.02:
+            if ser.in_waiting > 0: # Read available bytes
+                data = ser.read(ser.in_waiting)
+                BytesGot += data
 
     ProcessedTo = 0
     for a in range (0, len(BytesGot)-1):
@@ -232,17 +245,17 @@ def FindController():
 # Misc commands
 #===========================================================================================
 # Drive on/off/reset
-def DriveEnable(): SendCommand(DMM_GENERAL_READ, 0x20) # re-engage motor drive
-def DriveDisable():SendCommand(DMM_GENERAL_READ, 0x21) # Disable drive (freewheel)
-def DriveReset():  SendCommand(DMM_GENERAL_READ, 0x1c) # reset motor drive to clear overloading condition
+def DriveEnable(): SendCommand(GENERAL_READ, 0x20) # re-engage motor drive
+def DriveDisable():SendCommand(GENERAL_READ, 0x21) # Disable drive (freewheel)
+def DriveReset():  SendCommand(GENERAL_READ, 0x1c) # reset motor drive to clear overloading condition
 
 # Request read of pos, torque or speed.
 # Return values will be stored in ReplyValues[n] at 0x1b, 0x1d and 0x1e
 # after calling RecvData()
-def ReqPosRead():     SendCommand(DMM_GENERAL_READ, 0x1b) # Position, at [0x1b]
-def ReqTorqCurrent(): SendCommand(DMM_GENERAL_READ, 0x1e) # Torque current, at [0x1d]
-def ReqMotorSpeed():  SendCommand(DMM_GENERAL_READ, 0x1d) # Read motor speed, at [0x1e]
-
+def ReqDriveStatus(): SendCommand(0x09) # Status will be at 0x19
+def ReqPosRead():     SendCommand(GENERAL_READ, 0x1b) # Position, at [0x1b]
+def ReqTorqCurrent(): SendCommand(GENERAL_READ, 0x1e) # Torque current, at [0x1d]
+def ReqMotorSpeed():  SendCommand(GENERAL_READ, 0x1d) # Read motor speed, at [0x1e]
 
 # requires "pip3 instll pyserial" for serial to be enabled.
 def OpenSerial(port="COM7",ID=0x7f):
